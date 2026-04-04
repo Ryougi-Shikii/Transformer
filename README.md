@@ -1,21 +1,149 @@
-# Transformer
+# Transformer Model (`model.py`) — From Tokens to Probabilities
 
-Experiments with transformers
+This file implements a **Pre-LayerNorm Transformer**, the modern standard for stable deep Transformer training.
 
-1. The Entry Point: Embeddings and Position
-Computers don't understand words; they understand vectors.
-- Input Embedding: This converts a token ID into a vector of size [d_model] (usually 512).
-The code multiplies these vectors by [d_model]^1/2 (sqrt) to ensure that the variance of the embeddings matches the variance of the positional encodings.
-- Positional Encoding: Since the Transformer processes all tokens at once, it has no idea where a word sits in a sentence. This component adds a fixed "signal" to the embedding using sine and cosine waves
-- Dropout: A 10% dropout is applied immediately after adding the position signal to prevent the model from over-relying on specific dimensions.
+The goal: transform a sequence of token IDs into a probability distribution over a vocabulary.
 
-2. The Engine: Multi-Head Attention (MHA)
-This is where the model "looks" at other words to understand context.
-- Linear Projections: The input is projected into three different spaces: Query (Q), Key (K), and Value (V).
-The "Split": If [d_model] is 512 and there are 8 heads (h), the code reshapes the tensor so that each head handles a vector of size 64 (d_k).
-This allows the model to attend to different types of information (e.g., one head for grammar, one for meaning) simultaneously.
-- Scaled Dot-Product: The core math is Softmax((QK^T)/([d_k]^1/2)).
--QK^T calculates a score for how much every word should care about every other word.
--Dividing by [d_k]^1/2 prevents the scores from getting too large, which would "kill" the gradients during training.
--Masking: The code uses masked_fill to set scores for padding or "future" tokens to negative infinity, effectively making their influence zero after the softmax.
+---
 
+## 1. Input Stage: Embedding + Position
+
+### Input Embedding
+- Converts token IDs into dense vectors of size `d_model` (e.g., 512).
+- Scaled by:
+
+\[
+\sqrt{d_{model}}
+\]
+
+- Ensures embedding variance aligns with positional encoding.
+
+---
+
+### Positional Encoding
+Adds positional information using sine/cosine functions:
+
+\[
+PE_{(pos, 2i)} = \sin(pos / 10000^{2i/d_{model}})
+\]
+
+\[
+PE_{(pos, 2i+1)} = \cos(pos / 10000^{2i/d_{model}})
+\]
+
+- Enables the model to understand token order.
+- No recurrence or convolution is used.
+
+---
+
+### Dropout
+- Applied after embedding + positional encoding.
+- Typical value: `0.1`
+- Prevents over-reliance on specific dimensions.
+
+---
+
+## 2. Core Mechanism: Multi-Head Attention (MHA)
+
+### Linear Projections
+Input is projected into:
+- Query (Q)
+- Key (K)
+- Value (V)
+
+---
+
+### Multi-Head Split
+If:
+- `d_model = 512`
+- `heads = 8`
+
+Then:
+- Each head processes `d_k = 64`
+
+This allows parallel attention over different representation subspaces.
+
+---
+
+### Scaled Dot-Product Attention
+
+\[
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}}\right)V
+\]
+
+- \(QK^T\): similarity scores
+- Scaling prevents gradient issues
+- Softmax produces attention weights
+
+---
+
+### Masking
+- Implemented via `masked_fill`
+- Sets invalid positions to `-∞`
+- Ensures:
+  - No attention to padding
+  - No "future token" leakage in decoder
+
+---
+
+## 3. Feed-Forward Network (FFN)
+
+Operates independently on each token.
+
+### Structure:
+1. **Expansion**:
+   \[
+   512 \rightarrow 2048
+   \]
+
+2. **Activation**:
+   - GELU (smooth, better gradient flow)
+
+3. **Projection Back**:
+   \[
+   2048 \rightarrow 512
+   \]
+
+---
+
+## 4. Pre-LayerNorm Architecture
+
+Each sublayer follows:
+
+\[
+x + \text{Dropout}(\text{Sublayer}(\text{LayerNorm}(x)))
+\]
+
+### Why Pre-LN?
+- Stabilizes training
+- Prevents vanishing/exploding gradients
+- Enables deeper stacks
+
+---
+
+## 5. Decoder Cross-Attention
+
+Decoder contains an additional attention layer:
+
+### Mechanism:
+- Query → Decoder
+- Key, Value → Encoder
+
+### Purpose:
+- Allows decoder to attend to source sequence
+- Enables alignment (e.g., translation)
+
+---
+
+## 6. Output Stage
+
+### Linear Projection
+- Maps `d_model → vocab_size`
+- Produces logits for each token
+
+---
+
+### Weight Tying
+
+```python
+self.output_head.weight = self.tgt_embed.embedding.weight
