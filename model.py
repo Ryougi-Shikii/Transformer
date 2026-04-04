@@ -135,6 +135,7 @@ class ResidualConnection(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, sublayer):
+        #sublayers -> can be MultiHeadAttention, FeedForward
         return x + self.dropout(sublayer(self.norm(x)))
 
 
