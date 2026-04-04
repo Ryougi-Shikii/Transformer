@@ -86,19 +86,21 @@ class MultiHeadAttention(nn.Module):
 
     def _split_heads(self, t):
         B, S, _ = t.size()
-        return t.view(B, S, self.h, self.d_k).transpose(1, 2)   # ( B, S, d_model ) -> ( B, h, S, d_k )
+        # ( B, S, d_model ) -> ( B, h, S, d_k )
+        return t.view(B, S, self.h, self.d_k).transpose(1, 2)
 
     def forward(self, query, key, value, mask=None):
         Q = self._split_heads(self.W_q(query))
         K = self._split_heads(self.W_k(key))
         V = self._split_heads(self.W_v(value))
+        # dimensions of Q, K and V : ( B, h, S, d_k )
 
         x, self.attn_weights = scaled_dot_product_attention(Q, K, V, mask, self.dropout)
 
-        B, _, S, _ = x.size()
         # ( B, h, S, d_k ) -> ( B, S, d_model: h*d_K )
+        B, _, S, _ = x.size()
         x = x.transpose(1, 2).contiguous().view(B, S, self.h * self.d_k)
-        return self.W_o(x) # Let all heads stacked mix together as W_o * (softmax((Q*K_transpose)/sqrt(d_k))*V)
+        return self.W_o(x) # Let all heads stacked mix together -> W_o * (softmax((Q*K_transpose)/sqrt(d_k))*V)
 
 
 # ──────────────────────────────────────────────
@@ -129,7 +131,7 @@ class ResidualConnection(nn.Module):
 
     def __init__(self, d_model: int, dropout: float = 0.1):
         super().__init__()
-        self.norm    = nn.LayerNorm(d_model)          # ← native PyTorch LayerNorm
+        self.norm    = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, sublayer):
