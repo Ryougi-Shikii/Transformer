@@ -51,13 +51,17 @@ class PositionalEncoding(nn.Module):
 # ──────────────────────────────────────────────
 
 def scaled_dot_product_attention(query, key, value, mask=None, dropout=None):
+
     d_k    = query.size(-1)
+    # (Q*K.transpose)/sqrt(d_k)
     scores = torch.matmul(query, key.transpose(-2, -1)) / math.sqrt(d_k)
 
     if mask is not None:
         scores = scores.masked_fill(mask == 0, float("-inf"))
 
+    # softmax((Q*K.transpose)/sqrt(d_k))
     weights = F.softmax(scores, dim=-1)
+
     # Guard against all-inf rows (full padding) → NaN → zero
     weights = torch.nan_to_num(weights, nan=0.0)
 
@@ -82,7 +86,7 @@ class MultiHeadAttention(nn.Module):
 
     def _split_heads(self, t):
         B, S, _ = t.size()
-        return t.view(B, S, self.h, self.d_k).transpose(1, 2)   # (B, h, S, d_k)
+        return t.view(B, S, self.h, self.d_k).transpose(1, 2)   # ( B, S, d_model ) -> ( B, h, S, d_k )
 
     def forward(self, query, key, value, mask=None):
         Q = self._split_heads(self.W_q(query))
@@ -92,8 +96,9 @@ class MultiHeadAttention(nn.Module):
         x, self.attn_weights = scaled_dot_product_attention(Q, K, V, mask, self.dropout)
 
         B, _, S, _ = x.size()
+        # ( B, h, S, d_k ) -> ( B, S, d_model: h*d_K )
         x = x.transpose(1, 2).contiguous().view(B, S, self.h * self.d_k)
-        return self.W_o(x)
+        return self.W_o(x) # Let all heads stacked mix together as W_o * (softmax((Q*K_transpose)/sqrt(d_k))*V)
 
 
 # ──────────────────────────────────────────────
